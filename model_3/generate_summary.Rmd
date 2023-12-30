@@ -1,0 +1,245 @@
+---
+title: "Inference in the sparse beta model"
+#author: "Stefan Stein"
+#date: "09/03/2020"
+output: 
+  pdf_document:
+    keep_tex: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+```
+
+# Calibrated sparsity and mu, negative $\gamma$
+
+
+## Model setup
+
+For the next model I allowed the sparsity of $\beta$ and the sparsity of the network to change in a calibrated manner. The model setup was: $n=300,500,,800,1000$ and
+
+- $\beta = \log(\log(n)) \cdot (2, 0.8, 1, \dots, 1, 0, \dots, 0)^T$. The sparsity of $\beta$ is 7, 9, 10, 12 for network sizes $n = 300, 500, 800, 1000$ respectively.
+- $\mu = -0.2\cdot\log(n)$.
+- $p= 2, \gamma = (1, 0.8)^T$.
+- $Z_{ij, k} \sim \text{Beta}(2,2) - 1/2$, as before.
+- Model selection with a heuristic based on theory. Theory says: Fix a confidence level $t$ and let
+	\[
+	a_n = \sqrt{\frac{2\log(2(n+p+1))}{\binom{n}{2}}} (1 \vee c).
+	\]
+	Choose $\lambda_0 = \lambda_0(t,n)$ as
+	\[
+	\lambda_0 = 4a_n + 2 \sqrt{\frac{2t}{\binom{n}{2}}(  (1 \vee (c^2p) ) + \sqrt{2}(1 \vee c) \sqrt{n} a_n  )} + \frac{\sqrt{2}t(1 \vee c) \sqrt{n}}{3\binom{n}{2}}.
+	\]
+	and $\bar{ \lambda} \ge 8 \lambda_0$. Recall that $\bar \lambda = \sqrt{n/2}\cdot\lambda$. For the simulation I choose $t=2$ and set, *ignoring the factor 8 above*,
+	\[
+      \lambda = \sqrt{2/n}\cdot \lambda_0,
+	\]
+	with $1 \vee c = 1$.
+- I compare this to model selection with BIC.
+- 1000 repetitions.
+
+
+
+## Inference
+
+```{r, include=FALSE}
+rm(list = ls())
+M <- 1000
+sample_sizes <- c(300,500,800,1000)
+#subdirectory <- "Results"
+subdirectory <- "simulation_results"
+path <- paste0(getwd(),"/", subdirectory)
+
+### Results
+
+get_files <- function(sample_size){
+  list.files(path = path,
+             pattern = paste0("*", sample_size, "_FL_beta*"), full.names = T)%>%
+    sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+    bind_rows()%>%
+    setNames("beta_mae")%>%
+    mutate(n = sample_size,
+           penalty = "pre-determined")%>%
+    select(n, penalty, everything())%>%
+    mutate(beta_mae = beta_mae / n)%>%
+    mutate(mu_abs = list.files(path = path,
+                               pattern = paste0("*", sample_size, "_FL_mu_error.csv*"), full.names = T)%>%
+             sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+             bind_rows()%>%
+             pull(X1)%>%abs())%>%
+    mutate(gamma_l1 = list.files(path = path,
+                                 pattern = paste0("*", sample_size, "_FL_gamma_l1*"), full.names = T)%>%
+             sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+             bind_rows()%>%
+             pull(X1)%>%abs())%>%
+    cbind(list.files(path = path,
+                     pattern = paste0("*", sample_size, "_FL_gamma_inference*"), full.names = T)%>%
+            sapply(read_csv, col_names = FALSE, simplify = FALSE) %>% 
+            bind_rows()%>%
+            setNames(c("Standardized_gamma_1", "Standardized_gamma_2", 
+                       "Coverage_gamma_1", "Length_CI_gamma_1",
+                       "Coverage_gamma_2", "Length_CI_gamma_2")))%>%
+    bind_rows(
+      list.files(path = path,
+                 pattern = paste0("*", sample_size, "_IC_matrix*"), full.names = T)%>%
+        sapply(read_csv, col_names = FALSE, simplify = FALSE) %>% 
+        bind_rows()%>%
+        select(X7, X25, X28)%>%
+        setNames(c("beta_mae", "mu_abs", "gamma_l1"))%>%
+        mutate(mu_abs = abs(mu_abs),
+               n = sample_size,
+               penalty = "BIC")%>%
+        select(n, penalty, everything())%>%
+        cbind(list.files(path = path,
+                         pattern = paste0("*", sample_size, "_BIC_gamma_inference*"), full.names = T)%>%
+                sapply(read_csv, col_names = FALSE, simplify = FALSE) %>% 
+                bind_rows()%>%
+                setNames(c("Standardized_gamma_1", "Standardized_gamma_2", 
+                           "Coverage_gamma_1", "Length_CI_gamma_1",
+                           "Coverage_gamma_2", "Length_CI_gamma_2")))
+    )
+  
+  
+  
+}
+
+
+results <- lapply(sample_sizes, get_files)%>%
+  bind_rows()
+
+```
+
+
+
+```{r, include=FALSE}
+
+## Coverage summaries
+
+inference_results <- results%>%group_by(n, penalty)%>%
+  summarise(Coverage_gamma_1 = sum(Coverage_gamma_1)/M,
+            Coverage_gamma_2 = sum(Coverage_gamma_2)/M,
+            median_length_CI_1 = median(Length_CI_gamma_1),
+            median_length_CI_2 = median(Length_CI_gamma_2),
+            mean_standardized_1 = mean(Standardized_gamma_1),
+            mean_standardized_2 = mean(Standardized_gamma_2),
+            median_standardized_1 = median(Standardized_gamma_1),
+            median_standardized_2 = median(Standardized_gamma_2))%>%
+  arrange(desc(penalty))
+
+```
+
+
+In each run I calculate the standardized $\gamma$-values
+\[
+  \sqrt{\binom{n}{2}}\frac{\hat \gamma_k - \gamma_{0,k}}{\sqrt{\hat \Theta_{k,k}}}, \ k = 1,2.
+\]
+Asymptotically this should follow a $\mathcal{N}(0,1)$ distribution and we take a look at the corresponding histogram.
+
+I also calculate confidence intervals for our $\gamma$ estimates. I take a straightforward approach and calculate the confidence intervals at the $95\%$ level as
+\[
+  CI_k = \left(\hat \gamma_k - 1.96 \times \sqrt{\frac{\hat \Theta_{k,k}}{\binom{n}{2}}}, \hat \gamma_k + 1.96 \times \sqrt{\frac{\hat \Theta_{k,k}}{\binom{n}{2}}} \right), \ k = 1,2.
+\]
+
+
+The results for the calibrated model are summarized in the tables below.
+
+```{r, echo=FALSE}
+knitr::kable(inference_results[,c(1,3,5,7,9)],
+      caption = "Inference results for gamma 1",
+      col.names = c("n", "Empirical coverage", "Median length CI", 
+                    "Mean", "Median"),
+      booktabs = TRUE)%>%
+  pack_rows("Pre-determined lambda", 1, length(sample_sizes))%>%
+  pack_rows("BIC", length(sample_sizes)+1, 2*length(sample_sizes))%>%
+  kable_styling(latex_options = "hold_position")
+
+```
+
+```{r, echo=FALSE}
+knitr::kable(inference_results[,c(1,4,6,8,10)],
+      caption = "Inference results for gamma 2",
+      col.names = c("n", "Empirical coverage", "Median length CI", 
+                    "Mean", "Median"),
+      booktabs = TRUE)%>%
+  pack_rows("Pre-determined lambda", 1, length(sample_sizes))%>%
+  pack_rows("BIC", length(sample_sizes)+1, 2*length(sample_sizes))%>%
+  kable_styling(latex_options = "hold_position")
+
+```
+
+## Consistency
+
+We calculate the mean absolute error for $\beta$, the absolute error for $\mu$ and the $\ell_1$-error for $\gamma$ and look at the corresponding boxplots comparing the pre-determined choice of $\lambda$ with the choice made by $BIC$.
+
+
+```{r, echo=FALSE}
+### MAE_beta_without_log
+p <- ggplot(data = results, mapping = aes(x = as.factor(n), y = beta_mae))+
+  geom_boxplot(aes(color = penalty),lwd = 1)+
+  labs(x = "Network size n", y = "MAE")+
+  theme(legend.position="none",axis.title.x = element_text(size = 25), 
+        axis.title.y = element_text(size = 25),axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20))
+ggsave(filename = "MAE_beta_without_log.png",p, width = 24.87, height = 16.47, dpi = 300, units = "cm", device='png')
+
+### MAE_beta_with_log
+
+p <- ggplot(data = results, mapping = aes(x = as.factor(n), y = beta_mae))+
+  geom_boxplot(aes(color = penalty),lwd = 1)+
+  labs(x = "Network size n", y = "MAE")+
+  theme(legend.position="none",axis.title.x = element_text(size = 25), 
+        axis.title.y = element_text(size = 25),axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20))+scale_y_log10()
+ggsave(filename = "MAE_beta_with_log.png",p, width = 24.87, height = 16.47, dpi = 300, units = "cm", device='png')
+```
+
+
+
+```{r, echo=FALSE}
+### mu_without_log
+p <- ggplot(data = results, mapping = aes(x = as.factor(n), y = mu_abs))+
+  geom_boxplot(aes(color = penalty),lwd = 1)+
+  labs(x = "Network size n", y = "Absolute error")+
+  theme(legend.position="none",axis.title.x = element_text(size = 25), 
+        axis.title.y = element_text(size = 25),axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20))
+ggsave(filename = "mu_without_log.png",p, width = 24.87, height = 16.47, dpi = 300, units = "cm", device='png')
+
+### mu_with_log
+
+p <- ggplot(data = results, mapping = aes(x = as.factor(n), y = mu_abs))+
+  geom_boxplot(aes(color = penalty),lwd = 1)+
+  labs(x = "Network size n", y = "Absolute error")+
+  theme(legend.position="none",axis.title.x = element_text(size = 25), 
+        axis.title.y = element_text(size = 25),axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20))+scale_y_log10()
+ggsave(filename = "mu_with_log.png",p, width = 24.87, height = 16.47, dpi = 300, units = "cm", device='png')
+```
+
+
+
+
+```{r, echo=FALSE}
+### gamma_without_log
+p <- ggplot(data = results, mapping = aes(x = as.factor(n), y = gamma_l1))+
+  geom_boxplot(aes(color = penalty),lwd = 1)+
+  labs(x = "Network size n", y = "l1-error")+
+  theme(legend.position="none",axis.title.x = element_text(size = 25), 
+        axis.title.y = element_text(size = 25),axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20))
+ggsave(filename = "gamma_without_log.png",p, width = 24.87, height = 16.47, dpi = 300, units = "cm", device='png')
+
+### gamma_with_log
+
+p <- ggplot(data = results, mapping = aes(x = as.factor(n), y = gamma_l1))+
+  geom_boxplot(aes(color = penalty),lwd = 1)+
+  labs(x = "Network size n", y = "l1-error")+
+  theme(legend.position="none",axis.title.x = element_text(size = 25), 
+        axis.title.y = element_text(size = 25),axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20))+scale_y_log10()
+ggsave(filename = "gamma_with_log.png",p, width = 24.87, height = 16.47, dpi = 300, units = "cm", device='png')
+```
+
+
+
+
+
+
+
