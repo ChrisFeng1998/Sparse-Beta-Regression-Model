@@ -1,0 +1,154 @@
+---
+title: "Inference in the sparse ER model with covariates -- Model 1"
+author: "Stefan Stein"
+date: "25/05/2020"
+output: 
+  pdf_document:
+    keep_tex: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(kableExtra)
+library(matrixStats)
+library(tidyverse)
+```
+
+
+
+## Model setup
+
+
+```{r, include=FALSE}
+M <- 1000
+sample_sizes <- c(300,500,800,1000)
+p <- 20
+subdirectory <- "Results"
+path <- paste0(getwd(),"/", subdirectory)
+
+### Results
+
+get_files <- function(sample_size){
+  list.files(path = path,
+             pattern = paste0("*", sample_size, "_gamma_inference.csv"), full.names = T)%>%
+    sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+    bind_rows()%>%
+    setNames(c(paste0("Standardized_gamma_error_",1:p),
+               paste0("CI_length_",1:p), 
+               paste0("Coverage_",1:p)))%>%
+    mutate(n = sample_size,)%>%
+    select(n, everything())%>%
+    mutate(gamma_l1 = list.files(path = path,
+                                 pattern = paste0("*", sample_size, "_gamma_l1_*"), full.names = T)%>%
+             sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+             bind_rows()%>%
+             pull(X1))%>%
+    mutate(gamma_l2 = list.files(path = path,
+                                 pattern = paste0("*", sample_size, "_gamma_l2_*"), full.names = T)%>%
+             sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+             bind_rows()%>%
+             pull(X1))%>%
+    mutate(mu_error = list.files(path = path,
+                                 pattern = paste0("*", sample_size, "mu_error*"), full.names = T)%>%
+             sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+             bind_rows()%>%
+             pull(X1)%>%
+             abs())%>%
+    cbind(list.files(path = path,
+                     pattern = paste0("*", sample_size, "_network_summaries*"), full.names = T)%>%
+            sapply(read_csv, col_names = FALSE, simplify = FALSE) %>% 
+            bind_rows()%>%
+            setNames(c("unique_degrees", "total_degree", 
+                       "edge_density", 
+                       "min_prob", "1st_Qu_prob", "median_prob",
+                       "mean_prob", "3rd_Qu_prob", "max_prob")))
+}
+
+
+results <- lapply(sample_sizes, get_files)%>%
+  bind_rows()
+
+```
+
+
+## Network summaries
+
+```{r, echo=FALSE}
+knitr::kable(results%>%group_by(n)%>%
+               summarise(median_edge_density=median(edge_density),
+                         median_min_prob = median(min_prob),
+                         median_max_prob = median(max_prob),
+                         median_avg_prob = median(mean_prob)),
+             caption = "Network density accross different n",
+             col.names = c("n", "Median edge density", "Median \nmin probability",
+                           "Median \nmax probability",
+                           "Median \navg probability"),
+             booktabs = TRUE)%>%
+    kable_styling(latex_options = "hold_position")
+```
+
+
+
+## Inference
+
+```{r, include=FALSE}
+
+## Coverage summaries
+
+coverage <- results%>%
+  select(n, contains("Coverage"))%>%
+  group_by(n)%>%
+  summarise_all(mean)%>%
+  ungroup()%>%
+  select(-n)%>%
+  as.matrix()%>%
+  rowMedians()
+
+CI_lengths <- results%>%
+  select(n, contains("CI_length"))%>%
+  group_by(n)%>%
+  summarize_all(median)%>%
+  ungroup()%>%
+  select(-n)%>%
+  as.matrix()%>%
+  rowMedians()
+
+standardized_gamma <- results%>%
+  select(n, contains("Standardized"))%>%
+  group_by(n)%>%
+  summarize_all(median)%>%
+  ungroup()%>%
+  select(-n)%>%
+  as.matrix()%>%
+  rowMedians()
+
+inference_results <- tibble(n = sample_sizes,
+                                Coverage = coverage,
+                                CI_length = CI_lengths,
+                                Standardized_gamma = standardized_gamma)
+
+```
+
+
+In each run I calculate the standardized $\gamma$-values
+\[
+  \sqrt{\binom{n}{2}}\frac{\hat \gamma_k - \gamma_{0,k}}{\sqrt{\hat \Theta_{k,k}}}, \ k = 1,2.
+\]
+Asymptotically this should follow a $\mathcal{N}(0,1)$ distribution and we take a look at the corresponding histogram.
+
+I also calculate confidence intervals for our $\gamma$ estimates. I take a straightforward approach and calculate the confidence intervals at the $95\%$ level as
+\[
+  CI_k = \left(\hat \gamma_k - 1.96 \times \sqrt{\frac{\hat \Theta_{k,k}}{\binom{n}{2}}}, \hat \gamma_k + 1.96 \times \sqrt{\frac{\hat \Theta_{k,k}}{\binom{n}{2}}} \right), \ k = 1,2.
+\]
+
+
+The results for the calibrated model are summarized in the tables below.
+
+```{r, echo=FALSE}
+knitr::kable(inference_results,
+             caption = "Inference results for gamma",
+             col.names = c("n", "Empirical coverage", "Median length CI", "Median Error"),
+             booktabs = TRUE)%>%
+  kable_styling(latex_options = "hold_position")
+```
