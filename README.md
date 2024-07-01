@@ -13,6 +13,7 @@ Each of those directories contains the following:
 - the `simulation_results` subdirectory contains the raw output from the simulations
 - `generate_summary.Rmd` contains code for producing the simulation summaries presented in the paper, such as confidence intervals and error plots.
 
+The code for the inference of degree heterogeneity parameter $\beta$ under different scenarios is stored in the directory `Inference_of_beta`.
 
 ### ERC model
 
