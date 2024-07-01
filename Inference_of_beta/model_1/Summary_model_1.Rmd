@@ -1,0 +1,44 @@
+---
+title: "Inference of beta"
+output: pdf_document
+date: "2024-06-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+subdirectory <- "model_1/results_model_1"
+path <- paste0(getwd(),"/", subdirectory)
+sample_sizes <-  c(300,500,800,1000)
+
+
+get_files <- function(sample_size){
+  list.files(path = path,
+             pattern = paste0("*", sample_size, "_Summary_beta_inference"), full.names = T)%>%
+    sapply(read_csv, col_names = FALSE, simplify = FALSE) %>%
+    bind_rows()%>%
+    mutate(n = sample_size)%>%
+    dplyr::select(n,  everything())%>%
+    setNames(c('sample_size',"lambda_fixed", "lambda_bic", 
+                "coverage_lambda_fixed", "coverage_lambda_bic",
+                "CI_width_fixed", "CI_width_bic"))  
+}
+
+Inference_beta <- lapply(sample_sizes, get_files)%>%bind_rows()
+```
+
+
+
+```{r}
+M <- 1000
+
+inference_results <- Inference_beta%>%group_by(sample_size)%>%
+  summarise(coverage_lambda_fixed = sum(coverage_lambda_fixed)/M,
+            coverage_lambda_bic = sum(coverage_lambda_bic)/M,
+            CI_width_fixed = sum(CI_width_fixed)/M,
+            CI_width_bic = sum(CI_width_bic)/M)
+```
+
